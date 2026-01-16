@@ -1,33 +1,45 @@
-name: build x86_64-pc-linux-gnu
+name: build-alpine-musl
 on: [push]
 
 jobs:
-  x86_64-pc-linux-gnu:
-    runs-on: ubuntu-22.04
+  build-alpine:
+    # 依然运行在 ubuntu 宿主机上，但我们在容器内执行步骤
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:latest # 使用 Alpine 镜像确保 musl 环境
+    
     steps:
-      - run: sudo apt-get update
-      - run: sudo apt-get install -y g++ git cmake nodejs pkg-config libfmt-dev liblzo2-dev libzstd-dev zlib1g-dev
-      - run: echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-8)" >> $GITHUB_ENV
-      - run: git clone ${{ github.server_url }}/${{ github.repository }} ${SHORT_SHA}
-      - run: cd ${SHORT_SHA} && git checkout ${{ github.sha }}
-      - run: mkdir -p debug-work
-      - run: mkdir -p release-work
-      - run: |
+      - name: Install dependencies
+        run: |
+          apk update
+          # 安装对应的 Alpine 开发库
+          apk add g++ git cmake nodejs pkgconf fmt-dev lzo-dev zstd-dev zlib-dev make openssl-dev krb5-dev linux-headers
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Debug
+        run: |
+          mkdir -p debug-work
           cmake -DCMAKE_BUILD_TYPE=Debug \
             -DCMAKE_INSTALL_PREFIX=${PWD}/install/debug \
-            -DCMAKE_INSTALL_INCLUDEDIR=../include \
             -DWITH_OPENSSL=ON -DENABLE_KRB5=ON \
-            -S ${SHORT_SHA} -B debug-work && \
-          cmake --build debug-work --parallel $(nproc) && \
+            -S . -B debug-work
+          cmake --build debug-work --parallel $(nproc)
           cmake --install debug-work
-      - run: |
+
+      - name: Build Release
+        run: |
+          mkdir -p release-work
           cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_INSTALL_PREFIX=${PWD}/install \
             -DWITH_OPENSSL=ON -DENABLE_KRB5=ON \
-            -S ${SHORT_SHA} -B release-work && \
-          cmake --build release-work --parallel $(nproc) && \
+            -S . -B release-work
+          cmake --build release-work --parallel $(nproc)
           cmake --install release-work
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.sha }}
+          name: ntfs2btrfs-alpine-${{ github.sha }}
           path: install
